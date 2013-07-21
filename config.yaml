@@ -1,0 +1,17 @@
+key:
+  key.pem
+
+groups:
+  default:
+    - 127.0.0.1:22
+
+commands:
+  list_root:
+    cmd: ls /root
+    help: "list root directory"
+  list_tmp:
+    cmd: ls /tmp
+    desc: "list tmp directory"
+  nb_conn:
+    cmd: "netstat -an | grep :80 | wc -l"
+    desc: "get list of conn"
