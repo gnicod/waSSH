@@ -19,6 +19,7 @@ import (
 	"github.com/gcmurphy/getpass"
 	"github.com/globocom/config"
 	"github.com/droundy/goopt"
+	"github.com/gnicod/goscplib"
 	"fmt"
 	"os"
 )
@@ -46,7 +47,9 @@ func executeSsh(res chan string, server string, command string) {
 
 func executeScp(res chan string, server string, src string, dest string) {
 	conn,_ := Connect(server, *user, *pwd)
-	res <- "\033[1m\033[92m" + server + ":\033[0m \n" + Push(conn, src, dest) + "\n"
+	scp    := goscplib.NewScp(conn)
+	scp.PushFile(src, dest)
+	res <- "\033[1m\033[92m" + server + ":\033[0m \n scp " + src + " to "+dest+"\n"
 }
 
 func showListCommand() {
@@ -58,8 +61,7 @@ func showListCommand() {
 
 func main() {
 	goopt.Description = func() string {
-		return "Example program for using the goopt flag library."
-
+		return "Manage server with ssh."
 	}
 	goopt.Version = "0.05"
 	goopt.Summary = "one line to SSH'em all"

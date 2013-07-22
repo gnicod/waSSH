@@ -10,10 +10,6 @@ import (
 	"code.google.com/p/go.crypto/ssh"
 	"bytes"
 	"log"
-	"fmt"
-	"os"
-	"io"
-	"path/filepath"
 
 )
 
@@ -131,36 +127,3 @@ func Execute(client *ssh.ClientConn, command string) string {
 
 }
 
-//Push file src to remote host
-func Push(client *ssh.ClientConn, src string, dest string) string{
-	session, err := client.NewSession()
-	if err != nil {
-		log.Fatalln("Failed to create session: " + err.Error())
-
-	}
-	defer session.Close()
-	go func() {
-		w, _ := session.StdinPipe()
-		defer w.Close()
-		fileSrc, srcErr := os.Open(src)
-		if srcErr != nil {
-			log.Fatalln("Failed to open source file: " + srcErr.Error())
-		}
-		//Get file size
-		srcStat, statErr := fileSrc.Stat()
-		if statErr != nil {
-			log.Fatalln("Failed to stat file: " + statErr.Error())
-		}
-		fmt.Fprintln(w, "C0644", srcStat.Size(), filepath.Base(dest))
-		io.Copy(w, fileSrc)
-		fmt.Fprint(w, "\x00")
-
-	}()
-	if err := session.Run("/usr/bin/scp -qrt "+filepath.Dir(dest)); err != nil {
-		panic("Failed to run: " + err.Error())
-
-	}
-
-	return "scp "+ src + " to " + dest
-
-}
