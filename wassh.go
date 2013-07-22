@@ -48,7 +48,20 @@ func executeSsh(res chan string, server string, command string) {
 func executeScp(res chan string, server string, src string, dest string) {
 	conn,_ := Connect(server, *user, *pwd)
 	scp    := goscplib.NewScp(conn)
-	scp.PushFile(src, dest)
+	fileSrc, srcErr := os.Open(src)
+	if srcErr != nil {
+		fmt.Println("Failed to open source file: " + srcErr.Error())
+	}
+	//Check if src is a dir
+	srcStat, statErr := fileSrc.Stat()
+	if statErr != nil {
+		fmt.Println("Failed to stat file: " + statErr.Error())
+	}
+	if srcStat.IsDir(){
+		scp.PushDir(src, dest)
+	}else{
+		scp.PushFile(src, dest)
+	}
 	res <- "\033[1m\033[92m" + server + ":\033[0m \n scp " + src + " to "+dest+"\n"
 }
 
@@ -75,12 +88,12 @@ func main() {
 	isScp := false
 
 	if len(*src)==0 && len(*dest)>0 {
-			fmt.Println("--src should be setted")
-			os.Exit(1)
+		fmt.Println("--src should be setted")
+		os.Exit(1)
 	}
 	if len(*src)>0 && len(*dest)==0 {
-			fmt.Println("--dest should be setted")
-			os.Exit(1)
+		fmt.Println("--dest should be setted")
+		os.Exit(1)
 	}
 
 	if len(*src)>0 && len(*dest)>0 {
