@@ -8,7 +8,7 @@ groups:
 commands:
   list_root:
     cmd: ls /root
-    help: "list root directory"
+    desc: "list root directory"
   list_tmp:
     cmd: ls /tmp
     desc: "list tmp directory"
