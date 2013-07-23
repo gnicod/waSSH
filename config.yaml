@@ -4,7 +4,6 @@ key:
 groups:
   default:
     - 127.0.0.1:22
-    - 88.191.144.165:22
   web:
     - web01.example.org  
     - web02.example.org  
@@ -12,7 +11,7 @@ groups:
 commands:
   list_root:
     cmd: ls /root
-    help: "list root directory"
+    desc: "list root directory"
   list_tmp:
     cmd: ls /tmp
     desc: "list tmp directory"
