@@ -66,9 +66,13 @@ func executeScp(res chan string, server string, src string, dest string) {
 }
 
 func showListCommand() {
-	list, _ := config.Get("commands")
-	//TODO
-	fmt.Println(list)
+	cmds, _ := config.Get("commands")
+	m:=cmds.(map[interface{}]interface{})
+	fmt.Printf("Commands available: \n\n")
+    	for k, v := range m {
+		cmd := v.(map[interface{}]interface{} )
+		fmt.Printf("%s : \n\t $> %s\n\t -%s\n\n" , k, cmd["cmd"], cmd["desc"])
+    	}
 	os.Exit(0)
 }
 
