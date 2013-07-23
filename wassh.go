@@ -67,8 +67,20 @@ func executeScp(res chan string, server string, src string, dest string) {
 
 func showListCommand() {
 	list, _ := config.Get("commands")
+	var lol map[interface{}]interface{}
+	conf, _ := lol[list] 
+	fmt.Println(conf)
 	//TODO
-	fmt.Println(list)
+	/*
+	type Map1 map[string]interface{}
+	type Map2 map[string]int
+	m := Map1 list
+	fmt.Println("m:", m)
+	for k, v := range m {
+		fmt.Println("k:", k, "v:", v)
+
+	}
+	*/
 	os.Exit(0)
 }
 

@@ -4,6 +4,10 @@ key:
 groups:
   default:
     - 127.0.0.1:22
+    - 88.191.144.165:22
+  web:
+    - web01.example.org  
+    - web02.example.org  
 
 commands:
   list_root:
@@ -15,3 +19,11 @@ commands:
   nb_conn:
     cmd: "netstat -an | grep :80 | wc -l"
     desc: "get list of conn"
+
+files:
+  nginx: 
+    local: "/home/ovski/conf/nginx.conf"
+    remote: "/etc/nginx/nginx.conf"
+    post_cmd: "/etc/inid.d/nginx reload" #optionnal
+    group: "web" #default = all
+
