@@ -8,7 +8,6 @@ package main
 *   Commandes dispos:
 *     execute, get, push
 *			--sync synchronize conf file 
-*			--check-sync check md5 
 *
 *		Options:
 *			-i to select a different private key
@@ -16,8 +15,8 @@ package main
 */
 
 import (
-	"github.com/gcmurphy/getpass"
 	"github.com/globocom/config"
+	//"github.com/gcmurphy/getpass"
 	"github.com/droundy/goopt"
 	"github.com/gnicod/goscplib"
 	"fmt"
@@ -53,12 +52,16 @@ var syncgroup = goopt.String([]string{"--sync-group"}, "", "group to synchronize
 var syncfile  = goopt.String([]string{"--sync-file"}, "", "file to synchronize")
 
 func executeSsh(res chan string, server string, command string) {
-	conn,_ := Connect(server, *user, *pwd)
+	conn,err := Connect(server, *user, *pwd)
 	output := ""
+	if err!=nil{
+		res <- "\033[31m" + server + ":\033[0m \nError, unable to connect to "+server
+		return
+	}
 	if *silent{
 		output = Execute(conn, command)
 	}else{
-		output = "\033[1m\033[92m" + server + ":\033[0m \n" + Execute(conn, command) + "\n"
+		output = "\033[92m" + server + ":\033[0m \n" + Execute(conn, command)
 	}
 	res <- output
 }
@@ -173,10 +176,6 @@ func main() {
 		*group = *syncgroup
 	}
 
-	if len(*pwd) == 0  {
-		*pwd, _ = getpass.GetPass()
-	}
-
 	cmd := *execute
 	if len(*command) > 0 {
 		cmd, err = config.GetString("commands:" + *command + ":cmd")
@@ -184,6 +183,14 @@ func main() {
 			fmt.Printf("Command does not exists: %s\n", *command)
 			os.Exit(1)
 		}
+	}
+
+	if len(*pwd) == 0  {
+		//*pwd, _ = getpass.GetPass()
+		var pass string
+		fmt.Print("Password: ")
+		fmt.Scanf("%s",&pass)
+		*pwd = pass
 	}
 
 	sshResultChan := make(chan string)

@@ -86,7 +86,6 @@ func Connect(server string, user string, pwd string) (*ssh.ClientConn, error) {
 		Auth: []ssh.ClientAuth{
 			ssh.ClientAuthPassword(clientPassword(pwd)),
 			//TODO ssh.ClientAuthKeyring(clientKey),
-
 		},
 	}
 	return ssh.Dial("tcp", server, config)
@@ -121,9 +120,10 @@ func Execute(client *ssh.ClientConn, command string) string {
 	var b bytes.Buffer
 	session.Stdout = &b
 	if err := session.Run(command); err != nil {
-		return "\033[1m\033[31mError: '" + command + "' failed to run\033[0m"
+		session.Stderr = &b
+		//return "\033[31mError: '" + command + "' failed to run\033[0m \n"
 	}
-	return (b.String())
+	return ("\033[31m"+b.String()+"\033[0m")
 
 }
 
