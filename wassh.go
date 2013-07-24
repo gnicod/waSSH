@@ -26,7 +26,16 @@ import (
 
 const (
 	CONF_FILE = "config.yaml"
+	//action
+	ACTION_SSH        = 0
+	ACTION_SCP        = 1
+	ACTION_SYNC_GROUP = 2
+	ACTION_SYNC_FILE  = 3
 )
+
+type FileSync struct{
+	local, dest, post_cmd, group string
+}
 
 //Command-line flag
 var group     = goopt.String([]string{"-g", "--group"}, "default", "name of group")
@@ -35,14 +44,23 @@ var execute   = goopt.String([]string{"-e", "--execute"},"", "command to execute
 var user      = goopt.String([]string{"-u", "--user"}, "root", "name of user")
 var pwd       = goopt.String([]string{"-p", "--password"}, "", "password")
 var promptpwd = goopt.Flag([]string{"--prompt-pwd"}, []string{},"prompt password","")
-var showlist  = goopt.Flag([]string{"-l", "--list"}, []string{},"list","")
+var showlist  = goopt.Flag([]string{"-l", "--list"}, []string{},"list all commands available","")
+var silent    = goopt.Flag([]string{"-s", "--silent"}, []string{},"quiet mode","")
 //scp options
 var src       = goopt.String([]string{"--src"}, "", "source file to push on the remote server")
 var dest      = goopt.String([]string{"--dest"}, "", "destination where to push on the remote server")
+var syncgroup = goopt.String([]string{"--sync-group"}, "", "group to synchronize")
+var syncfile  = goopt.String([]string{"--sync-file"}, "", "file to synchronize")
 
 func executeSsh(res chan string, server string, command string) {
 	conn,_ := Connect(server, *user, *pwd)
-	res <- "\033[1m\033[92m" + server + ":\033[0m \n" + Execute(conn, command) + "\n"
+	output := ""
+	if *silent{
+		output = Execute(conn, command)
+	}else{
+		output = "\033[1m\033[92m" + server + ":\033[0m \n" + Execute(conn, command) + "\n"
+	}
+	res <- output
 }
 
 func executeScp(res chan string, server string, src string, dest string) {
@@ -62,37 +80,54 @@ func executeScp(res chan string, server string, src string, dest string) {
 	}else{
 		scp.PushFile(src, dest)
 	}
-	res <- "\033[1m\033[92m" + server + ":\033[0m \n scp " + src + " to "+dest+"\n"
+	if res != nil{
+		res <- "\033[1m\033[92m" + server + ":\033[0m \n scp " + src + " to "+dest+"\n"
+	}
 }
 
 func showListCommand() {
-<<<<<<< HEAD
-	list, _ := config.Get("commands")
-	var lol map[interface{}]interface{}
-	conf, _ := lol[list] 
-	fmt.Println(conf)
-	//TODO
-	/*
-	type Map1 map[string]interface{}
-	type Map2 map[string]int
-	m := Map1 list
-	fmt.Println("m:", m)
-	for k, v := range m {
-		fmt.Println("k:", k, "v:", v)
-
-	}
-	*/
-=======
 	cmds, _ := config.Get("commands")
 	m:=cmds.(map[interface{}]interface{})
 	fmt.Printf("Commands available: \n\n")
-    	for k, v := range m {
+	for k, v := range m {
 		cmd := v.(map[interface{}]interface{} )
 		fmt.Printf("%s : \n\t $> %s\n\t -%s\n\n" , k, cmd["cmd"], cmd["desc"])
-    	}
->>>>>>> a0d7995983d3e34a155eb4a31505458f1dc26e41
+	}
 	os.Exit(0)
 }
+
+func syncFile(name string, server string) string{
+	files, _ := config.Get("files")
+	mfiles:=files.(map[interface{}]interface{})
+	file := mfiles[name].(map[interface{}]interface{})
+	fileSync := FileSync{local:file["local"].(string), dest:file["dest"].(string), post_cmd:file["post_cmd"].(string), group:file["group"].(string)}
+	executeScp(nil,server,fileSync.local,fileSync.dest)
+	return "SCP: " + fileSync.local+" on "+server+"\n"
+}
+
+func syncGroup(res chan string, group string, server string){
+	files, _ := config.Get("files")
+	m:=files.(map[interface{}]interface{})
+	resul := ""
+	for k, v := range m {
+		file := v.(map[interface{}]interface{} )
+		if file["group"] == group{
+			resul = resul +syncFile(k.(string), server)
+		}
+	}
+	res <- resul
+
+}
+
+func GetServers(group string) []string{
+	hosts, err := config.GetList("groups:" + group)
+	if err != nil {
+		fmt.Printf("Group does not exists: %s\n", group)
+		os.Exit(1)
+	}
+	return hosts
+}
+
 
 func main() {
 	goopt.Description = func() string {
@@ -102,12 +137,13 @@ func main() {
 	goopt.Summary = "one line to SSH'em all"
 	goopt.Parse(nil)
 	err := config.ReadConfigFile(CONF_FILE)
+	hosts := GetServers(*group)
 
 	if *showlist {
 		showListCommand()
 	}
 
-	isScp := false
+	action := ACTION_SSH
 
 	if len(*src)==0 && len(*dest)>0 {
 		fmt.Println("--src should be setted")
@@ -119,7 +155,7 @@ func main() {
 	}
 
 	if len(*src)>0 && len(*dest)>0 {
-		isScp = true
+		action = ACTION_SCP
 		if len(*command)>0{
 			fmt.Println("The command flag will be ignored")
 		}
@@ -128,35 +164,50 @@ func main() {
 		}
 	}
 
+	if len(*syncfile)>0{
+		action = ACTION_SYNC_FILE
+	}
+	if len(*syncgroup)>0{
+		action = ACTION_SYNC_GROUP
+		hosts  = GetServers(*syncgroup)
+		*group = *syncgroup
+	}
+
 	if len(*pwd) == 0  {
 		*pwd, _ = getpass.GetPass()
 	}
-	hosts, err := config.GetList("groups:" + *group)
-	if err != nil {
-		fmt.Printf("Group does not exists: %s\n", *group)
-		os.Exit(1)
-	}
 
-	sshResultChan := make(chan string)
 	cmd := *execute
-	for _, host := range hosts {
-		if isScp{
-			// Do some scp stuff
-			go executeScp(sshResultChan, host, *src, *dest)
-		}else{
-			// Execute ssh command
-			if len(*command) > 0 {
-				cmd, err = config.GetString("commands:" + *command + ":cmd")
-				if err != nil {
-					fmt.Printf("Command does not exists: %s\n", *command)
-					os.Exit(1)
-				}
-			}
-			go executeSsh(sshResultChan, host, cmd)
+	if len(*command) > 0 {
+		cmd, err = config.GetString("commands:" + *command + ":cmd")
+		if err != nil {
+			fmt.Printf("Command does not exists: %s\n", *command)
+			os.Exit(1)
 		}
 	}
 
-	fmt.Println("$", cmd, "\n")
+	sshResultChan := make(chan string)
+	for _, host := range hosts {
+		switch action{
+			case ACTION_SSH:
+			go executeSsh(sshResultChan, host, cmd)
+
+		case ACTION_SCP:
+			go executeScp(sshResultChan, host, *src, *dest)
+
+		case ACTION_SYNC_FILE:
+			fmt.Println(sshResultChan,"sync file")
+			os.Exit(1)
+
+		case ACTION_SYNC_GROUP:
+			go syncGroup(sshResultChan,*group, host)
+			//os.Exit(1)
+		}
+	}
+
+	if !*silent{
+		fmt.Println("$", cmd, "\n")
+	}
 	for _, _ = range hosts {
 		//Catch the result
 		res := <-sshResultChan
