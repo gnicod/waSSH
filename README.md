@@ -1,3 +1,4 @@
+[![Stories in Ready](https://badge.waffle.io/gnicod/wassh.png?label=ready&title=Ready)](https://waffle.io/gnicod/wassh)
 waSSH
 =====
 
