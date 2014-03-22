@@ -52,23 +52,22 @@ var syncgroup = goopt.String([]string{"--sync-group"}, "", "group to synchronize
 var syncfile  = goopt.String([]string{"--sync-file"}, "", "file to synchronize")
 
 func executeSsh(res chan string, server string, command string) {
-	conn,err := Connect(server, *user, *pwd)
+  client := NewSSHClient(server,*user)
+  client.Connect()
+  pemfile,_ := config.GetString("key") //TODO catch error
+  client.PemFile = pemfile
 	output := ""
-	if err!=nil{
-		res <- "\033[31m" + server + ":\033[0m \nError, unable to connect to "+server
-		return
-	}
 	if *silent{
-		output = Execute(conn, command)
+		output = client.Execute(command)
 	}else{
-		output = "\033[92m" + server + ":\033[0m \n" + Execute(conn, command)
+		output = "\033[92m" + server + ":\033[0m \n" + client.Execute(command)
 	}
 	res <- output
 }
 
 func executeScp(res chan string, server string, src string, dest string) {
-	conn,_ := Connect(server, *user, *pwd)
-	scp    := goscplib.NewScp(conn)
+  client := NewSSHClient(server,*user)
+	scp    := goscplib.NewScp(client.Conn)
 	fileSrc, srcErr := os.Open(src)
 	if srcErr != nil {
 		fmt.Println("Failed to open source file: " + srcErr.Error())
@@ -185,13 +184,16 @@ func main() {
 		}
 	}
 
+  /*
 	if len(*pwd) == 0  {
-		//*pwd, _ = getpass.GetPass()
-		var pass string
-		fmt.Print("Password: ")
-		fmt.Scanf("%s",&pass)
-		*pwd = pass
+		*pwd, _ = getpass.GetPass()
+    
+		//var pass string
+		//fmt.Print("Password: ")
+		//fmt.Scanf("%s",&pass)
+		//*pwd = pass
 	}
+  */
 
 	sshResultChan := make(chan string)
 	for _, host := range hosts {

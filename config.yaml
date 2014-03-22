@@ -1,9 +1,9 @@
 key:
-  key.pem
+  "/home/ovski/.ssh/id_rsa"
 
 groups:
   default:
-    - 127.0.0.1:22
+    - 192.168.1.81:22
   web:
     - web01.example.org  
     - web02.example.org  
