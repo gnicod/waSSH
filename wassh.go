@@ -15,10 +15,9 @@ package main
 */
 
 import (
-	"github.com/globocom/config"
-	//"github.com/gcmurphy/getpass"
 	"github.com/droundy/goopt"
 	"github.com/gnicod/goscplib"
+	"github.com/tsuru/config"
 	"fmt"
 	"os"
 )
