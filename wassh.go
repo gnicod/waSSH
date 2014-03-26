@@ -52,11 +52,11 @@ var syncgroup = goopt.String([]string{"--sync-group"}, "", "group to synchronize
 var syncfile = goopt.String([]string{"--sync-file"}, "", "file to synchronize")
 
 func executeSsh(res chan string, server string, command string) {
-  client := NewSSHClient(server,*user)
-  //TODO doublon
-  pemfile,_ := config.GetString("key") //TODO catch error
-  client.PemFile = pemfile
-  client.Connect()
+	client := NewSSHClient(server, *user)
+	//TODO doublon
+	pemfile, _ := config.GetString("key") //TODO catch error
+	client.PemFile = pemfile
+	client.Connect()
 	output := ""
 	if *silent {
 		output = client.Execute(command)
@@ -67,12 +67,12 @@ func executeSsh(res chan string, server string, command string) {
 }
 
 func executeScp(res chan string, server string, src string, dest string) {
-  client := NewSSHClient(server,*user)
-  //TODO doublon
-  pemfile,_ := config.GetString("key") //TODO catch error
-  client.PemFile = pemfile
-  client.Connect()
-	scp    := goscplib.NewScp(client.Conn)
+	client := NewSSHClient(server, *user)
+	//TODO doublon
+	pemfile, _ := config.GetString("key") //TODO catch error
+	client.PemFile = pemfile
+	client.Connect()
+	scp := goscplib.NewScp(client.Conn)
 	fileSrc, srcErr := os.Open(src)
 	if srcErr != nil {
 		fmt.Println("Failed to open source file: " + srcErr.Error())
