@@ -1,95 +1,55 @@
 package main
 
 /*
-* TODO:
-*
-*	If config file does not exists, ask to create it
-*
-*   Commandes dispos:
-*     execute, get, push
-*			--sync synchronize conf file
-*
-*		Options:
-*			-i to select a different private key
-*			-c to select a predefined command in the config file
- */
+TODO
+-pouvoir passer le port en param ( -p --port)
+-pouvoir passer un script en param qui recup la liste des servers ( --server-from-script )
+-pouvoir rediriger la sortie vers un fichier different / server eg ( --exploded-output="/tmp/%SERVER%_res" )
+-better script https://stackoverflow.com/questions/20437336/how-to-execute-system-command-in-golang-with-unknown-arguments
+DONE
+-pouvoir passer une liste de commande en stdin
+-pouvoir passer une cle en param ( -i )
+-pouvoir passer le user en param ( -u --user)
+-pouvoir mettre port et user dans le server
+*/
 
 import (
 	"fmt"
 	"github.com/droundy/goopt"
-	"github.com/gnicod/goscplib"
 	"github.com/tsuru/config"
+	"github.com/andrew-d/go-termutil"
+	"os/exec"
+	"log"
+	"strings"
 	"os"
+	"bufio"
+	"runtime"
+	"time"
+	"strconv"
+	"regexp"
 )
-
-const (
-	CONF_FILE = "config.yaml"
-	//action
-	ACTION_SSH        = 0
-	ACTION_SCP        = 1
-	ACTION_SYNC_GROUP = 2
-	ACTION_SYNC_FILE  = 3
-)
-
-type FileSync struct {
-	local, dest, post_cmd, group string
-}
 
 //Command-line flag
 var group = goopt.String([]string{"-g", "--group"}, "default", "name of group")
 var command = goopt.String([]string{"-c", "--command"}, "", "predefined command to execute")
 var execute = goopt.String([]string{"-e", "--execute"}, "", "command to execute")
-var user = goopt.String([]string{"-u", "--user"}, "root", "name of user")
-var pwd = goopt.String([]string{"-p", "--password"}, "", "password")
-var promptpwd = goopt.Flag([]string{"--prompt-pwd"}, []string{}, "prompt password", "")
+var user = goopt.String([]string{"-u", "--user"}, "", "name of user")
+var port = goopt.String([]string{"-p", "--port"}, "", "port")
+var sTimeout = goopt.String([]string{"-t", "--timeout"}, "", "timeout (second) before leaving")
+var key = goopt.String([]string{"-i", "--key"}, "", " Selects a file from which the identity (private key) for RSA or DSA authentication is read")
 var showlist = goopt.Flag([]string{"-l", "--list"}, []string{}, "list all commands available", "")
-var silent = goopt.Flag([]string{"-s", "--silent"}, []string{}, "quiet mode", "")
 
-//scp options
-var src = goopt.String([]string{"--src"}, "", "source file to push on the remote server")
-var dest = goopt.String([]string{"--dest"}, "", "destination where to push on the remote server")
-var syncgroup = goopt.String([]string{"--sync-group"}, "", "group to synchronize")
-var syncfile = goopt.String([]string{"--sync-file"}, "", "file to synchronize")
-
-func executeSsh(res chan string, server string, command string) {
-	client := NewSSHClient(server, *user)
-	//TODO doublon
-	pemfile, _ := config.GetString("key") //TODO catch error
-	client.PemFile = pemfile
-	client.Connect()
-	output := ""
-	if *silent {
-		output = client.Execute(command)
-	} else {
-		output = "\033[92m" + server + ":\033[0m \n" + client.Execute(command)
-	}
-	res <- output
+type Server struct {
+	user , hostname , port string
 }
 
-func executeScp(res chan string, server string, src string, dest string) {
-	client := NewSSHClient(server, *user)
-	//TODO doublon
-	pemfile, _ := config.GetString("key") //TODO catch error
-	client.PemFile = pemfile
-	client.Connect()
-	scp := goscplib.NewScp(client.Conn)
-	fileSrc, srcErr := os.Open(src)
-	if srcErr != nil {
-		fmt.Println("Failed to open source file: " + srcErr.Error())
+func getStdin() (s []string) {
+	stdin := bufio.NewScanner(os.Stdin)
+	for stdin.Scan() {
+		line := stdin.Bytes()
+		s = append(s,string(line))
 	}
-	//Check if src is a dir
-	srcStat, statErr := fileSrc.Stat()
-	if statErr != nil {
-		fmt.Println("Failed to stat file: " + statErr.Error())
-	}
-	if srcStat.IsDir() {
-		scp.PushDir(src, dest)
-	} else {
-		scp.PushFile(src, dest)
-	}
-	if res != nil {
-		res <- "\033[1m\033[92m" + server + ":\033[0m \n scp " + src + " to " + dest + "\n"
-	}
+	return s
 }
 
 func showListCommand() {
@@ -99,136 +59,180 @@ func showListCommand() {
 	for k, v := range m {
 		cmd := v.(map[interface{}]interface{})
 		fmt.Printf("%s : \n\t $> %s\n\t -%s\n\n", k, cmd["cmd"], cmd["desc"])
+
 	}
 	os.Exit(0)
+
 }
 
-func syncFile(name string, server string) string {
-	files, _ := config.Get("files")
-	mfiles := files.(map[interface{}]interface{})
-	file := mfiles[name].(map[interface{}]interface{})
-	fileSync := FileSync{local: file["local"].(string), dest: file["dest"].(string), post_cmd: file["post_cmd"].(string), group: file["group"].(string)}
-	executeScp(nil, server, fileSync.local, fileSync.dest)
-	return "SCP: " + fileSync.local + " on " + server + "\n"
+
+func getDefaultValue(cnf string) string {
+	defValue := make(map[string]string)
+	defValue["user"] = "root"
+	defValue["timeout"] = "12"
+	defValue["port"] = "22"
+	//defValue["key"] = getHomeDirectory()+"\\.ssh\\id_rsa" //TODO chercher id_dsa si pas de rsa
+	if runtime.GOOS == "windows"{
+		defValue["key"] = getHomeDirectory()+"\\.ssh\\id_rsa" //TODO chercher id_dsa si pas de rsa
+	}else{
+		defValue["key"] = getHomeDirectory() + "/.ssh/id_rsa" //TODO chercher id_dsa si pas de rsa
+	}
+	//TOFIX key key not found
+	val, er := config.GetString(cnf)
+	if er != nil {
+		val = defValue[cnf]
+	}
+	return val
 }
 
-func syncGroup(res chan string, group string, server string) {
-	files, _ := config.Get("files")
-	m := files.(map[interface{}]interface{})
-	resul := ""
-	for k, v := range m {
-		file := v.(map[interface{}]interface{})
-		if file["group"] == group {
-			resul = resul + syncFile(k.(string), server)
+func getHomeDirectory() string {
+	if runtime.GOOS == "windows" {
+		home := os.Getenv("HOMEDRIVE") + os.Getenv("HOMEPATH")
+		if home == "" {
+			home = os.Getenv("USERPROFILE")
+
+		}
+		return home
+	}
+	return os.Getenv("HOME")
+}
+
+func getConfigFile() string {
+	home := getHomeDirectory()
+	if runtime.GOOS == "windows" {
+		return home + "\\_wasshrc"
+	}
+	return home + "/.wasshrc"
+}
+
+func parseLineServer(line string) (server Server){
+	server.user = *user
+	server.port = "22"
+	r, _ := regexp.Compile("([a-z]*@)?([a-z0-9.]*):?([0-9]{1,4})?")
+	matches := r.FindStringSubmatch(line)
+	if len(matches[1])>0{
+		server.user = matches[1][:len(matches[1])-1]
+	}
+	server.hostname = matches[2]
+	if len(matches[3])>0{
+		server.port = matches[3]
+	}
+	return server
+}
+
+func GetServers(group string) (servers []Server) {
+	hosts, err := config.GetList("groups:" + group)
+	for _, line := range hosts{
+		server := parseLineServer(line)
+		servers = append(servers,server)
+	}
+	if err != nil {
+		grScript,errScr := config.GetString("groups:"+group)
+		if errScr != nil {
+			fmt.Printf("Group %s does not exists " , group)
+			os.Exit(1)
+		}
+		outResScr, errResScr := exec.Command("sh","-c",grScript).Output() //TOFIX
+		if errResScr != nil {
+			log.Fatal(errResScr)
+			fmt.Printf("Script %s does not exists " , grScript)
+			os.Exit(1)
+		}
+		// TOFIX quite ugly
+		hostsTmp := strings.Split(string(outResScr),"\n")
+		for _, host := range hostsTmp {
+			if len(host)>0{
+				server := parseLineServer(host)
+				servers = append(servers,server)
+			}
 		}
 	}
-	res <- resul
-
+	return servers
 }
 
-func GetServers(group string) []string {
-	hosts, err := config.GetList("groups:" + group)
-	if err != nil {
-		fmt.Printf("Group does not exists: %s\n", group)
-		os.Exit(1)
+func ExecuteSsh(res chan string, server Server, commands []string) {
+	client := NewSSHClient(server.hostname+":"+server.port, server.user, *key)
+	//TODO split command \n
+	fullOut := fmt.Sprintf("\033[92m%s :\033[0m \n",server.hostname)
+	for _,cmd := range commands {
+		out, err := client.Run(cmd)
+		if err != nil {
+			fmt.Println(err)
+		}
+		out = fmt.Sprintf("\033[31m%s\033[0m :\n%s", cmd, out)
+		fullOut = fullOut + out
 	}
-	return hosts
+	res <- fullOut
 }
 
 func main() {
 	goopt.Description = func() string {
-		return "Manage server with ssh."
+		return "The clean way to ssh'em all."
 	}
-	goopt.Version = "0.05"
-	goopt.Summary = "one line to SSH'em all"
+	goopt.Version = "0.1"
+	goopt.Summary = "the clean way to SSH'em all"
 	goopt.Parse(nil)
-	err := config.ReadConfigFile(CONF_FILE)
-	hosts := GetServers(*group)
-
+	err := config.ReadConfigFile(getConfigFile())
+	if err != nil {
+		log.Fatal(err)
+		log.Fatalf("%s doesn't exists or is not wellformed", getConfigFile())
+	}
+	if len(*user)==0{
+		*user = getDefaultValue("user")
+	}
+	if len(*key)==0{
+		*key = getDefaultValue("key")
+	}
+	if len(*port)==0{
+		*port = getDefaultValue("port")
+	}
+	if len(*sTimeout)==0{
+		*sTimeout = getDefaultValue("timeout")
+	}
 	if *showlist {
 		showListCommand()
 	}
+	timeout, erParseTime := strconv.ParseInt(*sTimeout, 0, 64)
+	if erParseTime != nil{
+		fmt.Println(erParseTime)
+	}
+	hosts := GetServers(*group)
 
-	action := ACTION_SSH
+	var cmd []string
+	if termutil.Isatty(os.Stdin.Fd()) {
+		//stdin empty
+		if len(*execute)>0{
+			cmd = append(cmd,*execute)
+		}
+	}else{
+		cmd = getStdin()
+	}
 
-	if len(*src) == 0 && len(*dest) > 0 {
-		fmt.Println("--src should be setted")
+if len(*command) > 0 {
+	com, err := config.GetString("commands:" + *command + ":cmd")
+	if err != nil {
+		fmt.Printf("Command does not exists: %s\n", *command)
 		os.Exit(1)
 	}
-	if len(*src) > 0 && len(*dest) == 0 {
-		fmt.Println("--dest should be setted")
-		os.Exit(1)
-	}
+	cmd = append(cmd,com)
+}
 
-	if len(*src) > 0 && len(*dest) > 0 {
-		action = ACTION_SCP
-		if len(*command) > 0 {
-			fmt.Println("The command flag will be ignored")
-		}
-		if len(*execute) > 0 {
-			fmt.Println("The execute flag will be ignored")
-		}
-	}
+	//TODO check  *command 
 
-	if len(*syncfile) > 0 {
-		action = ACTION_SYNC_FILE
-	}
-	if len(*syncgroup) > 0 {
-		action = ACTION_SYNC_GROUP
-		hosts = GetServers(*syncgroup)
-		*group = *syncgroup
-	}
-
-	cmd := *execute
-	if len(*command) > 0 {
-		cmd, err = config.GetString("commands:" + *command + ":cmd")
-		if err != nil {
-			fmt.Printf("Command does not exists: %s\n", *command)
-			os.Exit(1)
-		}
-	}
-
-	/*
-		if len(*pwd) == 0  {
-			*pwd, _ = getpass.GetPass()
-
-			//var pass string
-			//fmt.Print("Password: ")
-			//fmt.Scanf("%s",&pass)
-			//*pwd = pass
-		}
-	*/
-
+	//create the chan
 	sshResultChan := make(chan string)
+
 	for _, host := range hosts {
-		switch action {
-		case ACTION_SSH:
-			go executeSsh(sshResultChan, host, cmd)
-
-		case ACTION_SCP:
-			go executeScp(sshResultChan, host, *src, *dest)
-
-		case ACTION_SYNC_FILE:
-			fmt.Println(sshResultChan, "sync file")
-			os.Exit(1)
-
-		case ACTION_SYNC_GROUP:
-			go syncGroup(sshResultChan, *group, host)
-			//os.Exit(1)
-		}
-	}
-
-	if !*silent {
-		fmt.Println("$", cmd, "\n")
+		go ExecuteSsh(sshResultChan, host, cmd)
 	}
 	for _ = range hosts {
 		//Catch the result
-		res := <-sshResultChan
-		fmt.Println(res)
-	}
-
-	if err != nil {
-		panic("Failed to dial: " + err.Error())
+		select {
+		case res := <-sshResultChan:
+			fmt.Println(res)
+		case <-time.After(time.Second * time.Duration(timeout)):
+			fmt.Println("timeout ")
+		}
 	}
 
 }

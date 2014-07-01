@@ -1,185 +1,96 @@
 package main
 
-// Copyright 2011 The Go Authors. All rights reserved.
-// Use of this source code is governed by a BSD-style
-// license that can be found in the LICENSE file.
-// Modify by linuz.ly
-// Modify by gnicod
-
 import (
-	"bytes"
 	"code.google.com/p/go.crypto/ssh"
-	"io"
+	"net"
+	//"fmt"
+	"bytes"
 	"io/ioutil"
 	"log"
-	"net"
-	"os"
 )
 
-type clientPassword string
-
-func (p clientPassword) Password(user string) (string, error) {
-	return string(p), nil
-
-}
-
-type TerminalModes map[uint8]uint32
-
 const (
-	VINTR         = 1
-	VQUIT         = 2
-	VERASE        = 3
-	VKILL         = 4
-	VEOF          = 5
-	VEOL          = 6
-	VEOL2         = 7
-	VSTART        = 8
-	VSTOP         = 9
-	VSUSP         = 10
-	VDSUSP        = 11
-	VREPRINT      = 12
-	VWERASE       = 13
-	VLNEXT        = 14
-	VFLUSH        = 15
-	VSWTCH        = 16
-	VSTATUS       = 17
-	VDISCARD      = 18
-	IGNPAR        = 30
-	PARMRK        = 31
-	INPCK         = 32
-	ISTRIP        = 33
-	INLCR         = 34
-	IGNCR         = 35
-	ICRNL         = 36
-	IUCLC         = 37
-	IXON          = 38
-	IXANY         = 39
-	IXOFF         = 40
-	IMAXBEL       = 41
-	ISIG          = 50
-	ICANON        = 51
-	XCASE         = 52
 	ECHO          = 53
-	ECHOE         = 54
-	ECHOK         = 55
-	ECHONL        = 56
-	NOFLSH        = 57
-	TOSTOP        = 58
-	IEXTEN        = 59
-	ECHOCTL       = 60
-	ECHOKE        = 61
-	PENDIN        = 62
-	OPOST         = 70
-	OLCUC         = 71
-	ONLCR         = 72
-	OCRNL         = 73
-	ONOCR         = 74
-	ONLRET        = 75
-	CS7           = 90
-	CS8           = 91
-	PARENB        = 92
-	PARODD        = 93
 	TTY_OP_ISPEED = 128
 	TTY_OP_OSPEED = 129
 )
-
-// keyring implements the ClientKeyring interface
-
-type keyring struct {
-	keys []ssh.Signer
-}
-
-func (k *keyring) Key(i int) (ssh.PublicKey, error) {
-	if i < 0 || i >= len(k.keys) {
-		return nil, nil
-
-	}
-	return k.keys[i].PublicKey(), nil
-
-}
-
-func (k *keyring) Sign(i int, rand io.Reader, data []byte) (sig []byte, err error) {
-	return k.keys[i].Sign(rand, data)
-
-}
-
-func (k *keyring) add(key ssh.Signer) {
-	k.keys = append(k.keys, key)
-
-}
-
-func (k *keyring) loadPEM(file string) error {
-	buf, err := ioutil.ReadFile(file)
-	if err != nil {
-		return err
-
-	}
-	key, err := ssh.ParsePrivateKey(buf)
-	if err != nil {
-		return err
-
-	}
-	k.add(key)
-	return nil
-
-}
-
-func NewSSHClient(host, user string) (c *SSHClient) {
-	c = &SSHClient{
-		User: user,
-		Host: host,
-	}
-	return
-}
 
 type SSHClient struct {
 	User    string
 	Host    string
 	Pwd     string
-	PemFile string
+	Key     string
 	Agent   net.Conn
-	Conn    *ssh.ClientConn
+	Session *ssh.Session
+	Config  *ssh.ClientConfig
 }
 
-func (c *SSHClient) Connect() (e error) {
-	var auths []ssh.ClientAuth
+func parsekey(file string) ssh.Signer {
+	privateBytes, err := ioutil.ReadFile(file)
+	if err != nil {
+		panic("Failed to load private key")
 
-	if c.PemFile != "" {
-		k := new(keyring)
-		err := k.loadPEM(c.PemFile)
-		if err != nil {
-			log.Printf("cannot load pem file: %s", err)
-		}
-		//via private key
-		auths = append(auths, ssh.ClientAuthKeyring(k))
 	}
-	//via ssh-agent
-	if c.Agent, e = net.Dial("unix", os.Getenv("SSH_AUTH_SOCK")); e == nil {
-		ac := ssh.NewAgentClient(c.Agent)
-		auths = append(auths, ssh.ClientAuthAgent(ac))
+
+	private, err := ssh.ParsePrivateKey(privateBytes)
+	if err != nil {
+		panic("Failed to parse private key")
+
 	}
-	//via pwd
-	if c.Pwd == "" {
-		auths = append(auths, ssh.ClientAuthPassword(clientPassword(c.Pwd)))
-	}
+	return private
+
+}
+
+func NewSSHClient(host string, user string, keyPath string) (c *SSHClient) {
+
+	pkey := parsekey(keyPath)
 
 	config := &ssh.ClientConfig{
-		User: c.User,
-		Auth: auths,
+		User: user,
+		Auth: []ssh.AuthMethod{
+			ssh.PublicKeys(pkey),
+			ssh.Password(""),
+		},
 	}
-	c.Conn, e = ssh.Dial("tcp", c.Host, config)
-	return e
+	c = &SSHClient{
+		User:   user,
+		Host:   host,
+		Config: config,
+	}
+	return
 }
 
-func (c *SSHClient) Execute(command string) string {
-	defer c.Conn.Close()
+func (c *SSHClient) Output(s string) (stout []byte, sterr error) {
+	client, err := ssh.Dial("tcp", c.Host, c.Config)
+	if err != nil {
+		panic("Failed to dial: " + err.Error())
+
+	}
+
+	c.Session, err = client.NewSession()
+	if err != nil {
+		panic("Failed to create session: " + err.Error())
+
+	}
+	defer c.Session.Close()
+	stout, sterr = c.Session.Output(s)
+	return stout, sterr
+
+}
+
+func (c *SSHClient) Run(command string) (out string, err error) {
+	client, err := ssh.Dial("tcp", c.Host, c.Config)
+	if err != nil {
+		panic("Failed to dial: " + err.Error())
+
+	}
 	// Create a session
-	session, err := c.Conn.NewSession()
+	c.Session, err = client.NewSession()
 	if err != nil {
 		log.Fatalf("unable to create session: %s", err)
 
 	}
-	defer session.Close()
+	defer c.Session.Close()
 	// Set up terminal modes
 	modes := ssh.TerminalModes{
 		ECHO:          0,     // disable echoing
@@ -188,17 +99,21 @@ func (c *SSHClient) Execute(command string) string {
 
 	}
 	// Request pseudo terminal
-	if err := session.RequestPty("xterm", 80, 40, modes); err != nil {
+	if err := c.Session.RequestPty("xterm", 80, 40, modes); err != nil {
 		log.Fatalf("request for pseudo terminal failed: %s", err)
 
 	}
 
 	var b bytes.Buffer
-	session.Stdout = &b
-	if err := session.Run(command); err != nil {
-		session.Stderr = &b
-		//return "\033[31mError: '" + command + "' failed to run\033[0m \n"
+	c.Session.Stdout = &b
+	if err := c.Session.Run(command); err != nil {
+		c.Session.Stderr = &b
 	}
-	return ("\033[31m" + b.String() + "\033[0m")
+	return b.String(), err
+
+}
+
+func (c *SSHClient) Close(session *ssh.Session) {
+	c.Session.SendRequest("close", false, nil)
 
 }
