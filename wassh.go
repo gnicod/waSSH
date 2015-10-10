@@ -14,19 +14,20 @@ DONE
 */
 
 import (
-	"fmt"
-	"github.com/droundy/goopt"
-	"github.com/tsuru/config"
-	"github.com/andrew-d/go-termutil"
-	"os/exec"
-	"log"
-	"strings"
-	"os"
 	"bufio"
-	"runtime"
-	"time"
-	"strconv"
+	"fmt"
+	"github.com/andrew-d/go-termutil"
+	"github.com/droundy/goopt"
+	"github.com/hypersleep/easyssh"
+	"github.com/tsuru/config"
+	"log"
+	"os"
+	"os/exec"
 	"regexp"
+	"runtime"
+	"strconv"
+	"strings"
+	"time"
 )
 
 //Command-line flag
@@ -40,14 +41,14 @@ var key = goopt.String([]string{"-i", "--key"}, "", " Selects a file from which 
 var showlist = goopt.Flag([]string{"-l", "--list"}, []string{}, "list all commands available", "")
 
 type Server struct {
-	user , hostname , port string
+	user, hostname, port string
 }
 
 func getStdin() (s []string) {
 	stdin := bufio.NewScanner(os.Stdin)
 	for stdin.Scan() {
 		line := stdin.Bytes()
-		s = append(s,string(line))
+		s = append(s, string(line))
 	}
 	return s
 }
@@ -65,16 +66,15 @@ func showListCommand() {
 
 }
 
-
 func getDefaultValue(cnf string) string {
 	defValue := make(map[string]string)
 	defValue["user"] = "root"
 	defValue["timeout"] = "12"
 	defValue["port"] = "22"
 	//defValue["key"] = getHomeDirectory()+"\\.ssh\\id_rsa" //TODO chercher id_dsa si pas de rsa
-	if runtime.GOOS == "windows"{
-		defValue["key"] = getHomeDirectory()+"\\.ssh\\id_rsa" //TODO chercher id_dsa si pas de rsa
-	}else{
+	if runtime.GOOS == "windows" {
+		defValue["key"] = getHomeDirectory() + "\\.ssh\\id_rsa" //TODO chercher id_dsa si pas de rsa
+	} else {
 		defValue["key"] = getHomeDirectory() + "/.ssh/id_rsa" //TODO chercher id_dsa si pas de rsa
 	}
 	//TOFIX key key not found
@@ -105,16 +105,16 @@ func getConfigFile() string {
 	return home + "/.wasshrc"
 }
 
-func parseLineServer(line string) (server Server){
+func parseLineServer(line string) (server Server) {
 	server.user = *user
 	server.port = "22"
 	r, _ := regexp.Compile("([a-z]*@)?([a-z0-9.]*):?([0-9]{1,4})?")
 	matches := r.FindStringSubmatch(line)
-	if len(matches[1])>0{
+	if len(matches[1]) > 0 {
 		server.user = matches[1][:len(matches[1])-1]
 	}
 	server.hostname = matches[2]
-	if len(matches[3])>0{
+	if len(matches[3]) > 0 {
 		server.port = matches[3]
 	}
 	return server
@@ -122,28 +122,28 @@ func parseLineServer(line string) (server Server){
 
 func GetServers(group string) (servers []Server) {
 	hosts, err := config.GetList("groups:" + group)
-	for _, line := range hosts{
+	for _, line := range hosts {
 		server := parseLineServer(line)
-		servers = append(servers,server)
+		servers = append(servers, server)
 	}
 	if err != nil {
-		grScript,errScr := config.GetString("groups:"+group)
+		grScript, errScr := config.GetString("groups:" + group)
 		if errScr != nil {
-			fmt.Printf("Group %s does not exists " , group)
+			fmt.Printf("Group %s does not exists ", group)
 			os.Exit(1)
 		}
-		outResScr, errResScr := exec.Command("sh","-c",grScript).Output() //TOFIX
+		outResScr, errResScr := exec.Command("sh", "-c", grScript).Output() //TOFIX
 		if errResScr != nil {
 			log.Fatal(errResScr)
-			fmt.Printf("Script %s does not exists " , grScript)
+			fmt.Printf("Script %s does not exists ", grScript)
 			os.Exit(1)
 		}
 		// TOFIX quite ugly
-		hostsTmp := strings.Split(string(outResScr),"\n")
+		hostsTmp := strings.Split(string(outResScr), "\n")
 		for _, host := range hostsTmp {
-			if len(host)>0{
+			if len(host) > 0 {
 				server := parseLineServer(host)
-				servers = append(servers,server)
+				servers = append(servers, server)
 			}
 		}
 	}
@@ -151,10 +151,17 @@ func GetServers(group string) (servers []Server) {
 }
 
 func ExecuteSsh(res chan string, server Server, commands []string) {
-	client := NewSSHClient(server.hostname+":"+server.port, server.user, *key)
+	//client := NewSSHClient(server.hostname+":"+server.port, server.user, *key)
+	client := &easyssh.MakeConfig{
+		User:   server.user,
+		Server: server.hostname,
+		// Optional key or Password without either we try to contact your agent SOCKET
+		Key:  *key,
+		Port: server.port,
+	}
 	//TODO split command \n
-	fullOut := fmt.Sprintf("\033[92m%s :\033[0m \n",server.hostname)
-	for _,cmd := range commands {
+	fullOut := fmt.Sprintf("\033[92m%s :\033[0m \n", server.hostname)
+	for _, cmd := range commands {
 		out, err := client.Run(cmd)
 		if err != nil {
 			fmt.Println(err)
@@ -177,23 +184,23 @@ func main() {
 		log.Fatal(err)
 		log.Fatalf("%s doesn't exists or is not wellformed", getConfigFile())
 	}
-	if len(*user)==0{
+	if len(*user) == 0 {
 		*user = getDefaultValue("user")
 	}
-	if len(*key)==0{
+	if len(*key) == 0 {
 		*key = getDefaultValue("key")
 	}
-	if len(*port)==0{
+	if len(*port) == 0 {
 		*port = getDefaultValue("port")
 	}
-	if len(*sTimeout)==0{
+	if len(*sTimeout) == 0 {
 		*sTimeout = getDefaultValue("timeout")
 	}
 	if *showlist {
 		showListCommand()
 	}
 	timeout, erParseTime := strconv.ParseInt(*sTimeout, 0, 64)
-	if erParseTime != nil{
+	if erParseTime != nil {
 		fmt.Println(erParseTime)
 	}
 	hosts := GetServers(*group)
@@ -201,23 +208,23 @@ func main() {
 	var cmd []string
 	if termutil.Isatty(os.Stdin.Fd()) {
 		//stdin empty
-		if len(*execute)>0{
-			cmd = append(cmd,*execute)
+		if len(*execute) > 0 {
+			cmd = append(cmd, *execute)
 		}
-	}else{
+	} else {
 		cmd = getStdin()
 	}
 
-if len(*command) > 0 {
-	com, err := config.GetString("commands:" + *command + ":cmd")
-	if err != nil {
-		fmt.Printf("Command does not exists: %s\n", *command)
-		os.Exit(1)
+	if len(*command) > 0 {
+		com, err := config.GetString("commands:" + *command + ":cmd")
+		if err != nil {
+			fmt.Printf("Command does not exists: %s\n", *command)
+			os.Exit(1)
+		}
+		cmd = append(cmd, com)
 	}
-	cmd = append(cmd,com)
-}
 
-	//TODO check  *command 
+	//TODO check  *command
 
 	//create the chan
 	sshResultChan := make(chan string)

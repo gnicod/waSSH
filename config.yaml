@@ -1,5 +1,5 @@
 key:
-  "/home/ovski/.ssh/id_rsa"
+  "/home/johndoe/.ssh/id_rsa"
 
 groups:
   default:
